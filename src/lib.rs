@@ -4,7 +4,6 @@ use binding::{
     PROC_CN_MCAST_LISTEN,
 };
 use libc;
-use std::convert::TryInto;
 use std::io::{Error, Result};
 
 // these are some macros defined in netlink.h
@@ -81,7 +80,19 @@ impl PidMonitor {
     // TODO: We should really set this so than no ENOBUFS get sent
     // our way
     pub fn listen(&mut self) -> Result<()> {
-		self.set_recv_enobufs(false)?;
+        let val = true as libc::c_int;
+        if unsafe {
+            libc::setsockopt(
+                self.fd,
+                libc::SOL_NETLINK,
+                binding::NETLINK_NO_ENOBUFS as i32,
+                &val as *const libc::c_int as _,
+                std::mem::size_of_val(&val) as _,
+            )
+        } < 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
         let mut iov_vec = Vec::<libc::iovec>::new();
         // Set nlmsghdr
         let mut msghdr: nlmsghdr = unsafe { std::mem::zeroed() };
@@ -116,18 +127,6 @@ impl PidMonitor {
         }
     }
 
-	// TODO: This is temporary
-	fn set_recv_enobufs(&mut self, enable: bool) -> std::io::Result<()> {
-        let val = (!enable) as libc::c_int;
-        if unsafe { libc::setsockopt(
-                self.fd, libc::SOL_NETLINK, binding::NETLINK_NO_ENOBUFS as i32,
-                &val as *const libc::c_int as _, std::mem::size_of_val(&val) as _
-        ) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
-    }
-
     /// Gets the next event or events comming the netlink socket
     pub fn get_events(&self) -> Result<Vec<PidEvent>> {
         let page_size = std::cmp::min(unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) as usize }, 8192);
@@ -141,10 +140,10 @@ impl PidMonitor {
             return Err(Error::last_os_error());
         }
         let mut header = buffer.as_ptr() as *const nlmsghdr;
-		let mut pidevents = Vec::<PidEvent>::new();
-		let mut len = len as usize;
+        let mut pidevents = Vec::<PidEvent>::new();
+        let mut len = len as usize;
         loop {
-			// NLMSG_OK
+            // NLMSG_OK
             if len < nlmsg_hdrlen() {
                 break;
             }
@@ -152,53 +151,52 @@ impl PidMonitor {
             if len < msg_len {
                 break;
             }
-			let msg_type = unsafe {(*header).nlmsg_type} as u32;
-			match msg_type {
-				binding::NLMSG_ERROR |
-				binding::NLMSG_NOOP => continue,
-				_  => {
-					if let Some(pidevent) = unsafe {parse_msg(header)} {
-						pidevents.push(pidevent)
-					}
-				}
-			};
-			// NLSMSG_NEXT
-			let aligned_len = nlmsg_align(msg_len);
+            let msg_type = unsafe { (*header).nlmsg_type } as u32;
+            match msg_type {
+                binding::NLMSG_ERROR | binding::NLMSG_NOOP => continue,
+                _ => {
+                    if let Some(pidevent) = unsafe { parse_msg(header) } {
+                        pidevents.push(pidevent)
+                    }
+                }
+            };
+            // NLSMSG_NEXT
+            let aligned_len = nlmsg_align(msg_len);
             header = (header as usize + aligned_len) as *const nlmsghdr;
             len = match len.checked_sub(aligned_len) {
                 Some(v) => v,
                 None => break,
             };
-        };
-		Ok(pidevents)
+        }
+        Ok(pidevents)
     }
 }
 
 unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
-	let msg = (header as usize + nlmsg_length(0)) as * const cn_msg;
-	if (*msg).id.idx != binding::CN_IDX_PROC || (*msg).id.val != binding::CN_VAL_PROC{
-		return None
-	};
-	let proc_ev = (*msg).data.as_ptr() as *const binding::proc_event;
-	match (*proc_ev).what {
-		binding::PROC_EVENT_FORK => {
-			let pid = (*proc_ev).event_data.fork.child_pid;
-			Some(PidEvent::New(pid))
-		},
-		binding::PROC_EVENT_EXEC => {
-			let pid = (*proc_ev).event_data.exec.process_pid;
-			Some(PidEvent::New(pid))
-		},
-		binding::PROC_EVENT_EXIT =>{
-			let pid = (*proc_ev).event_data.exit.process_pid;
-			Some(PidEvent::Exit(pid))
-		},
-		binding::PROC_EVENT_COREDUMP => {
-			let pid = (*proc_ev).event_data.coredump.process_pid;
-			Some(PidEvent::Exit(pid))
-		},
-		_ => None
-	}
+    let msg = (header as usize + nlmsg_length(0)) as *const cn_msg;
+    if (*msg).id.idx != binding::CN_IDX_PROC || (*msg).id.val != binding::CN_VAL_PROC {
+        return None;
+    };
+    let proc_ev = (*msg).data.as_ptr() as *const binding::proc_event;
+    match (*proc_ev).what {
+        binding::PROC_EVENT_FORK => {
+            let pid = (*proc_ev).event_data.fork.child_pid;
+            Some(PidEvent::New(pid))
+        }
+        binding::PROC_EVENT_EXEC => {
+            let pid = (*proc_ev).event_data.exec.process_pid;
+            Some(PidEvent::New(pid))
+        }
+        binding::PROC_EVENT_EXIT => {
+            let pid = (*proc_ev).event_data.exit.process_pid;
+            Some(PidEvent::Exit(pid))
+        }
+        binding::PROC_EVENT_COREDUMP => {
+            let pid = (*proc_ev).event_data.coredump.process_pid;
+            Some(PidEvent::Exit(pid))
+        }
+        _ => None,
+    }
 }
 
 impl Drop for PidMonitor {
