@@ -22,6 +22,7 @@ fn nlmsg_length(len: usize) -> usize {
 }
 
 /// Events we are interested
+#[derive(Debug)]
 pub enum PidEvent {
     /// New process, fork or exec
     ///  PROC_EVENT_FORK
@@ -135,12 +136,13 @@ impl PidMonitor {
         unsafe {
             buffer.set_len(buff_size);
         }
-        let mut len = unsafe { libc::recv(self.fd, buffer.as_mut_ptr() as _, buff_size * 4, 0) } as usize;
+        let len = unsafe { libc::recv(self.fd, buffer.as_mut_ptr() as _, buff_size * 4, 0) };
         if len < 0 {
             return Err(Error::last_os_error());
         }
         let mut header = buffer.as_ptr() as *const nlmsghdr;
 		let mut pidevents = Vec::<PidEvent>::new();
+		let mut len = len as usize;
         loop {
 			// NLMSG_OK
             if len < nlmsg_hdrlen() {
@@ -154,7 +156,6 @@ impl PidMonitor {
 			match msg_type {
 				binding::NLMSG_ERROR |
 				binding::NLMSG_NOOP => continue,
-				binding::NLMSG_DONE => break,
 				_  => {
 					if let Some(pidevent) = unsafe {parse_msg(header)} {
 						pidevents.push(pidevent)
