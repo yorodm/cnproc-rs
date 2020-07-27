@@ -149,7 +149,6 @@ impl PidMonitor {
         let mut len = len as usize;
         loop {
             // NLMSG_OK
-            println!("{}", len);
             if len < nlmsg_hdrlen() {
                 break;
             }
