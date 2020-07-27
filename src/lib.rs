@@ -5,17 +5,21 @@ use binding::{
 };
 use libc;
 use std::io::{Error, Result};
+use std::collections::VecDeque;
 
 // these are some macros defined in netlink.h
 
+#[inline]
 fn nlmsg_align(len: usize) -> usize {
     (len + 3) & !3
 }
 
+#[inline]
 fn nlmsg_hdrlen() -> usize {
     nlmsg_align(std::mem::size_of::<nlmsghdr>())
 }
 
+#[inline]
 fn nlmsg_length(len: usize) -> usize {
     len + nlmsg_hdrlen()
 }
@@ -33,11 +37,13 @@ pub enum PidEvent {
     Exit(libc::c_int),
 }
 
-/// Pid Monitor
+/// The monitor will watch for process creation or destruction events
+/// comming from the kernel
 #[derive(Debug)]
 pub struct PidMonitor {
     fd: libc::c_int,
     id: u32,
+	queue: VecDeque<PidEvent>
 }
 
 impl PidMonitor {
@@ -73,13 +79,13 @@ impl PidMonitor {
         {
             return Err(Error::last_os_error());
         }
-        return Ok(PidMonitor { fd, id });
+		let mut monitor = PidMonitor { fd, id, queue: VecDeque::new() };
+		monitor.listen()?;
+        return Ok(monitor);
     }
 
     /// Signals to the kernel we are ready for listening to events
-    // TODO: We should really set this so than no ENOBUFS get sent
-    // our way
-    pub fn listen(&mut self) -> Result<()> {
+    fn listen(&mut self) -> Result<()> {
         let val = true as libc::c_int;
         if unsafe {
             libc::setsockopt(
@@ -103,7 +109,7 @@ impl PidMonitor {
         //Another mismatch
         msghdr.nlmsg_type = binding::NLMSG_DONE as u16;
         iov_vec.push(libc::iovec {
-            iov_len: std::mem::size_of_val(&msghdr),
+            iov_len: std::mem::size_of::<nlmsghdr>(),
             iov_base: &msghdr as *const nlmsghdr as _,
         });
         // Set cn_msg
@@ -112,7 +118,7 @@ impl PidMonitor {
         cnmesg.id.val = binding::CN_VAL_PROC;
         cnmesg.len = std::mem::size_of::<proc_cn_mcast_op>() as u16;
         iov_vec.push(libc::iovec {
-            iov_len: std::mem::size_of_val(&cnmesg),
+            iov_len: std::mem::size_of::<cn_msg>(),
             iov_base: &cnmesg as *const cn_msg as _,
         });
         let op = PROC_CN_MCAST_LISTEN;
@@ -128,7 +134,7 @@ impl PidMonitor {
     }
 
     /// Gets the next event or events comming the netlink socket
-    pub fn get_events(&self) -> Result<Vec<PidEvent>> {
+    fn get_events(&mut self) -> Result<()> {
         let page_size = std::cmp::min(unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) as usize }, 8192);
         let mut buffer = Vec::<u32>::with_capacity(page_size);
         let buff_size = buffer.capacity();
@@ -140,10 +146,10 @@ impl PidMonitor {
             return Err(Error::last_os_error());
         }
         let mut header = buffer.as_ptr() as *const nlmsghdr;
-        let mut pidevents = Vec::<PidEvent>::new();
         let mut len = len as usize;
         loop {
             // NLMSG_OK
+            println!("{}", len);
             if len < nlmsg_hdrlen() {
                 break;
             }
@@ -156,20 +162,33 @@ impl PidMonitor {
                 binding::NLMSG_ERROR | binding::NLMSG_NOOP => continue,
                 _ => {
                     if let Some(pidevent) = unsafe { parse_msg(header) } {
-                        pidevents.push(pidevent)
+                        self.queue.push_back(pidevent)
                     }
                 }
             };
             // NLSMSG_NEXT
             let aligned_len = nlmsg_align(msg_len);
             header = (header as usize + aligned_len) as *const nlmsghdr;
-            len = match len.checked_sub(aligned_len) {
-                Some(v) => v,
+            match len.checked_sub(aligned_len) {
+                Some(v) => len = v,
                 None => break,
             };
         }
-        Ok(pidevents)
+        Ok(())
     }
+
+	/// Returns events received.
+	pub fn recv(&mut self) -> Option<PidEvent> {
+		if self.queue.is_empty() {
+			match self.get_events() {
+			    Ok(_) => self.queue.pop_front(),
+			    Err(_) => None
+			}
+		}
+		else {
+			self.queue.pop_front()
+		}
+	}
 }
 
 unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
