@@ -23,12 +23,12 @@ fn nlmsg_length(len: usize) -> usize {
 /// Events we are interested
 #[derive(Debug)]
 pub enum PidEvent {
-    /// New process, fork or exec
-    ///  PROC_EVENT_FORK
     ///  PROC_EVENT_EXEC
-    New(libc::c_int),
-    /// Process exit
+    Exec(libc::c_int),
+    ///  PROC_EVENT_FORK
+    Fork(libc::c_int),
     /// PROC_EVENT_COREDUMP
+    Coredump(libc::c_int),
     /// PROC_EVENT_EXIT
     Exit(libc::c_int),
 }
@@ -181,11 +181,11 @@ unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
     match (*proc_ev).what {
         binding::PROC_EVENT_FORK => {
             let pid = (*proc_ev).event_data.fork.child_pid;
-            Some(PidEvent::New(pid))
+            Some(PidEvent::Fork(pid))
         }
         binding::PROC_EVENT_EXEC => {
             let pid = (*proc_ev).event_data.exec.process_pid;
-            Some(PidEvent::New(pid))
+            Some(PidEvent::Exec(pid))
         }
         binding::PROC_EVENT_EXIT => {
             let pid = (*proc_ev).event_data.exit.process_pid;
@@ -193,7 +193,7 @@ unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
         }
         binding::PROC_EVENT_COREDUMP => {
             let pid = (*proc_ev).event_data.coredump.process_pid;
-            Some(PidEvent::Exit(pid))
+            Some(PidEvent::Coredump(pid))
         }
         _ => None,
     }
