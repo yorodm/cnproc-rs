@@ -4,8 +4,8 @@ use binding::{
     PROC_CN_MCAST_LISTEN,
 };
 use libc;
-use std::io::{Error, Result};
 use std::collections::VecDeque;
+use std::io::{Error, Result};
 
 // these are some macros defined in netlink.h
 
@@ -24,7 +24,7 @@ fn nlmsg_length(len: usize) -> usize {
     len + nlmsg_hdrlen()
 }
 
-/// Events we are interested
+/// Events we are interested in
 #[derive(Debug)]
 pub enum PidEvent {
     ///  PROC_EVENT_EXEC
@@ -43,7 +43,7 @@ pub enum PidEvent {
 pub struct PidMonitor {
     fd: libc::c_int,
     id: u32,
-	queue: VecDeque<PidEvent>
+    queue: VecDeque<PidEvent>,
 }
 
 impl PidMonitor {
@@ -79,12 +79,16 @@ impl PidMonitor {
         {
             return Err(Error::last_os_error());
         }
-		let mut monitor = PidMonitor { fd, id, queue: VecDeque::new() };
-		monitor.listen()?;
+        let mut monitor = PidMonitor {
+            fd,
+            id,
+            queue: VecDeque::new(),
+        };
+        monitor.listen()?;
         return Ok(monitor);
     }
 
-    /// Signals to the kernel we are ready for listening to events
+    /// Signals to the kernel we are ready to start receiving events
     fn listen(&mut self) -> Result<()> {
         let val = true as libc::c_int;
         if unsafe {
@@ -176,18 +180,17 @@ impl PidMonitor {
         Ok(())
     }
 
-	/// Returns events received.
-	pub fn recv(&mut self) -> Option<PidEvent> {
-		if self.queue.is_empty() {
-			match self.get_events() {
-			    Ok(_) => self.queue.pop_front(),
-			    Err(_) => None
-			}
-		}
-		else {
-			self.queue.pop_front()
-		}
-	}
+    /// Returns events received.
+    pub fn recv(&mut self) -> Option<PidEvent> {
+        if self.queue.is_empty() {
+            match self.get_events() {
+                Ok(_) => self.queue.pop_front(),
+                Err(_) => None,
+            }
+        } else {
+            self.queue.pop_front()
+        }
+    }
 }
 
 unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
