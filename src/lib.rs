@@ -30,7 +30,10 @@ pub enum PidEvent {
     ///  PROC_EVENT_EXEC
     Exec(libc::c_int),
     ///  PROC_EVENT_FORK
-    Fork(libc::c_int),
+    Fork {
+        parent: libc::c_int,
+        pid: libc::c_int,
+    },
     /// PROC_EVENT_COREDUMP
     Coredump(libc::c_int),
     /// PROC_EVENT_EXIT
@@ -202,7 +205,8 @@ unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
     match (*proc_ev).what {
         binding::PROC_EVENT_FORK => {
             let pid = (*proc_ev).event_data.fork.child_pid;
-            Some(PidEvent::Fork(pid))
+            let parent = (*proc_ev).event_data.fork.parent_pid;
+            Some(PidEvent::Fork { parent, pid })
         }
         binding::PROC_EVENT_EXEC => {
             let pid = (*proc_ev).event_data.exec.process_pid;
