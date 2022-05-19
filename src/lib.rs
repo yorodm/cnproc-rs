@@ -148,37 +148,43 @@ impl PidMonitor {
         unsafe {
             buffer.set_len(buff_size);
         }
-        let len = unsafe { libc::recv(self.fd, buffer.as_mut_ptr() as _, buff_size * 4, 0) };
-        if len < 0 {
-            return Err(Error::last_os_error());
-        }
-        let mut header = buffer.as_ptr() as *const nlmsghdr;
-        let mut len = len as usize;
-        loop {
-            // NLMSG_OK
-            if len < nlmsg_hdrlen() {
-                break;
+        while self.queue.is_empty() {
+            let len = unsafe { libc::recv(self.fd, buffer.as_mut_ptr() as _, buff_size * 4, 0) };
+            if len < 0 {
+                return Err(Error::last_os_error());
             }
-            let msg_len = unsafe { (*header).nlmsg_len } as usize;
-            if len < msg_len {
-                break;
+            if len == 0 {
+                // nothing left to receive
+                return Ok(());
             }
-            let msg_type = unsafe { (*header).nlmsg_type } as u32;
-            match msg_type {
-                binding::NLMSG_ERROR | binding::NLMSG_NOOP => continue,
-                _ => {
-                    if let Some(pidevent) = unsafe { parse_msg(header) } {
-                        self.queue.push_back(pidevent)
-                    }
+            let mut header = buffer.as_ptr() as *const nlmsghdr;
+            let mut len = len as usize;
+            loop {
+                // NLMSG_OK
+                if len < nlmsg_hdrlen() {
+                    break;
                 }
-            };
-            // NLSMSG_NEXT
-            let aligned_len = nlmsg_align(msg_len);
-            header = (header as usize + aligned_len) as *const nlmsghdr;
-            match len.checked_sub(aligned_len) {
-                Some(v) => len = v,
-                None => break,
-            };
+                let msg_len = unsafe { (*header).nlmsg_len } as usize;
+                if len < msg_len {
+                    break;
+                }
+                let msg_type = unsafe { (*header).nlmsg_type } as u32;
+                match msg_type {
+                    binding::NLMSG_ERROR | binding::NLMSG_NOOP => continue,
+                    _ => {
+                        if let Some(pidevent) = unsafe { parse_msg(header) } {
+                            self.queue.push_back(pidevent)
+                        }
+                    }
+                };
+                // NLSMSG_NEXT
+                let aligned_len = nlmsg_align(msg_len);
+                header = (header as usize + aligned_len) as *const nlmsghdr;
+                match len.checked_sub(aligned_len) {
+                    Some(v) => len = v,
+                    None => break,
+                };
+            }
         }
         Ok(())
     }
