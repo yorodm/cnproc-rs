@@ -8,3 +8,8 @@ Check out the [examples folder](https://github.com/yorodm/cnproc-rs/tree/main/ex
 ## Contributors.
 
 - [Bluskript](https://github.com/Bluskript)
+- [rydrman](https://github.com/rydrman)
+
+# I'm looking for maintainers
+
+If someone is interested in taking ownership of the project and the crate please leave a comment here.
