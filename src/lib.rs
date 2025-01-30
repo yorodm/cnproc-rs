@@ -208,22 +208,23 @@ unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
         return None;
     };
     let proc_ev = (*msg).data.as_ptr() as *const binding::proc_event;
-    match (*proc_ev).what {
+    let proc_ev = proc_ev.read_unaligned();
+    match proc_ev.what {
         binding::PROC_EVENT_FORK => {
-            let pid = (*proc_ev).event_data.fork.child_pid;
-            let parent = (*proc_ev).event_data.fork.parent_pid;
+            let pid = proc_ev.event_data.fork.child_pid;
+            let parent = proc_ev.event_data.fork.parent_pid;
             Some(PidEvent::Fork { parent, pid })
         }
         binding::PROC_EVENT_EXEC => {
-            let pid = (*proc_ev).event_data.exec.process_pid;
+            let pid = proc_ev.event_data.exec.process_pid;
             Some(PidEvent::Exec(pid))
         }
         binding::PROC_EVENT_EXIT => {
-            let pid = (*proc_ev).event_data.exit.process_pid;
+            let pid = proc_ev.event_data.exit.process_pid;
             Some(PidEvent::Exit(pid))
         }
         binding::PROC_EVENT_COREDUMP => {
-            let pid = (*proc_ev).event_data.coredump.process_pid;
+            let pid = proc_ev.event_data.coredump.process_pid;
             Some(PidEvent::Coredump(pid))
         }
         _ => None,
