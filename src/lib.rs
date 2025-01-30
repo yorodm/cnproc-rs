@@ -37,7 +37,11 @@ pub enum PidEvent {
     /// PROC_EVENT_COREDUMP
     Coredump(libc::c_int),
     /// PROC_EVENT_EXIT
-    Exit(libc::c_int),
+    Exit {
+        pid: i32,
+        exit_code: u32,
+        signal: u32,
+    },
 }
 
 /// The monitor will watch for process creation or destruction events
@@ -221,7 +225,13 @@ unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
         }
         binding::PROC_EVENT_EXIT => {
             let pid = proc_ev.event_data.exit.process_pid;
-            Some(PidEvent::Exit(pid))
+            let exit_code = proc_ev.event_data.exit.exit_code;
+            let signal = proc_ev.event_data.exit.exit_signal;
+            Some(PidEvent::Exit {
+                pid,
+                exit_code,
+                signal,
+            })
         }
         binding::PROC_EVENT_COREDUMP => {
             let pid = proc_ev.event_data.coredump.process_pid;
