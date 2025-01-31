@@ -28,19 +28,29 @@ fn nlmsg_length(len: usize) -> usize {
 #[derive(Debug)]
 pub enum PidEvent {
     ///  PROC_EVENT_EXEC
-    Exec(libc::c_int),
+    Exec { process_pid: i32, process_tgid: i32 },
     ///  PROC_EVENT_FORK
     Fork {
-        parent: libc::c_int,
-        pid: libc::c_int,
+        child_pid: i32,
+        child_tgid: i32,
+        parent_pid: i32,
+        parent_tgid: i32,
     },
     /// PROC_EVENT_COREDUMP
-    Coredump(libc::c_int),
+    Coredump {
+        process_pid: i32,
+        process_tgid: i32,
+        parent_pid: i32,
+        parent_tgid: i32,
+    },
     /// PROC_EVENT_EXIT
     Exit {
-        pid: i32,
+        process_pid: i32,
+        process_tgid: i32,
+        parent_pid: i32,
+        parent_tgid: i32,
         exit_code: u32,
-        signal: u32,
+        exit_signal: u32,
     },
 }
 
@@ -215,27 +225,52 @@ unsafe fn parse_msg(header: *const nlmsghdr) -> Option<PidEvent> {
     let proc_ev = proc_ev.read_unaligned();
     match proc_ev.what {
         binding::PROC_EVENT_FORK => {
-            let pid = proc_ev.event_data.fork.child_pid;
-            let parent = proc_ev.event_data.fork.parent_pid;
-            Some(PidEvent::Fork { parent, pid })
+            let child_pid = proc_ev.event_data.fork.child_pid;
+            let child_tgid = proc_ev.event_data.fork.child_tgid;
+            let parent_pid = proc_ev.event_data.fork.parent_pid;
+            let parent_tgid = proc_ev.event_data.fork.parent_tgid;
+            Some(PidEvent::Fork {
+                child_pid,
+                child_tgid,
+                parent_pid,
+                parent_tgid,
+            })
         }
         binding::PROC_EVENT_EXEC => {
-            let pid = proc_ev.event_data.exec.process_pid;
-            Some(PidEvent::Exec(pid))
+            let process_pid = proc_ev.event_data.exec.process_pid;
+            let process_tgid = proc_ev.event_data.exec.process_tgid;
+            Some(PidEvent::Exec {
+                process_pid,
+                process_tgid,
+            })
         }
         binding::PROC_EVENT_EXIT => {
-            let pid = proc_ev.event_data.exit.process_pid;
+            let process_pid = proc_ev.event_data.exit.process_pid;
+            let process_tgid = proc_ev.event_data.exit.process_tgid;
+            let parent_pid = proc_ev.event_data.exit.parent_pid;
+            let parent_tgid = proc_ev.event_data.exit.parent_tgid;
             let exit_code = proc_ev.event_data.exit.exit_code;
-            let signal = proc_ev.event_data.exit.exit_signal;
+            let exit_signal = proc_ev.event_data.exit.exit_signal;
             Some(PidEvent::Exit {
-                pid,
+                process_pid,
+                process_tgid,
+                parent_pid,
+                parent_tgid,
                 exit_code,
-                signal,
+                exit_signal,
             })
         }
         binding::PROC_EVENT_COREDUMP => {
-            let pid = proc_ev.event_data.coredump.process_pid;
-            Some(PidEvent::Coredump(pid))
+            let process_pid = proc_ev.event_data.coredump.process_pid;
+            let process_tgid = proc_ev.event_data.coredump.process_tgid;
+            let parent_pid = proc_ev.event_data.coredump.parent_pid;
+            let parent_tgid = proc_ev.event_data.coredump.parent_tgid;
+            Some(PidEvent::Coredump {
+                process_pid,
+                process_tgid,
+                parent_pid,
+                parent_tgid,
+            })
         }
         _ => None,
     }
