@@ -75,7 +75,7 @@ impl PidMonitor {
         let fd = unsafe {
             libc::socket(
                 libc::PF_NETLINK,
-                libc::SOCK_DGRAM,
+                libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
                 // for some reason bindgen doesn't make this
                 // a libc::c_int
                 NETLINK_CONNECTOR as i32,
